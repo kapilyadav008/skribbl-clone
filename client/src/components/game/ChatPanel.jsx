@@ -1,0 +1,192 @@
+/**
+ * components/game/ChatPanel.jsx
+ *
+ * Phase 6.5 — Multiplayer Guessing & Chat Interface
+ *
+ * Provides real-time chat and guess submission for players:
+ * - Auto-scrolling chat history stream.
+ * - Distinct styling for guesses, correct answers, close calls, hints, and system messages.
+ * - Input validation: ignores empty submissions, prevents drawer from guessing, blocks spoilers.
+ * - SketchClub paper-and-ink visual styling with tactile buttons.
+ */
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useRoom } from '../../context/RoomContext';
+
+export default function ChatPanel() {
+  const { player, gameState, chatMessages, submitGuess } = useRoom();
+
+  const [inputVal, setInputVal] = useState('');
+  const messagesEndRef = useRef(null);
+
+  const isDrawer = Boolean(gameState?.isDrawer);
+  const hasGuessedCorrectly = Boolean(gameState?.hasGuessedCorrectly);
+  const status = gameState?.status || 'idle';
+
+  // Auto-scroll to bottom whenever new messages arrive
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const trimmed = inputVal.trim();
+    if (!trimmed) return;
+
+    if (isDrawer && status === 'drawing') {
+      return;
+    }
+
+    submitGuess(trimmed);
+    setInputVal('');
+  };
+
+  return (
+    <div className="flex flex-col h-[480px] bg-paper-pure border-2 border-ink shadow-ink-lg rounded-2xl overflow-hidden select-none">
+      {/* ── Chat Header ── */}
+      <div className="flex items-center justify-between px-4 py-3 bg-paper-warm border-b-2 border-ink">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-black uppercase tracking-wider text-ink">
+            Studio Chat
+          </span>
+          <span className="w-2 h-2 rounded-full bg-lime animate-pulse" />
+        </div>
+        <span className="text-[10px] font-mono font-bold text-ink-light uppercase">
+          {isDrawer ? 'Artist (Read-only)' : hasGuessedCorrectly ? 'Solved ✓' : 'Guess Mode'}
+        </span>
+      </div>
+
+      {/* ── Messages Stream ── */}
+      <div className="flex-1 p-3 overflow-y-auto space-y-2 text-xs font-sans">
+        {chatMessages.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-center text-ink-faint p-4">
+            <span className="text-2xl mb-1">💬</span>
+            <p className="font-hand text-base text-ink font-bold">
+              No guesses yet!
+            </p>
+            <p className="text-[11px]">
+              Type in the box below to guess the drawing or chat.
+            </p>
+          </div>
+        ) : (
+          chatMessages.map((msg, i) => {
+            const key = msg.id || `msg-${i}`;
+            const isMe = player && (msg.playerId === player.id);
+
+            // Correct guess notification
+            if (msg.type === 'correct') {
+              return (
+                <div
+                  key={key}
+                  className="p-2.5 bg-lime/20 border-2 border-lime text-ink font-bold rounded-xl text-center space-y-0.5 animate-bounce"
+                >
+                  <p className="text-xs font-black flex items-center justify-center gap-1">
+                    <span>🎉</span>
+                    <span>{msg.playerName || msg.sender} guessed the word!</span>
+                  </p>
+                  {msg.pointsAwarded && (
+                    <p className="text-[10px] font-mono text-lime-800">
+                      +{msg.pointsAwarded} points awarded
+                    </p>
+                  )}
+                </div>
+              );
+            }
+
+            // Close guess hint (private warning)
+            if (msg.type === 'close') {
+              return (
+                <div
+                  key={key}
+                  className="p-2 bg-tape-yellow/70 border border-ink/40 text-ink font-bold rounded-lg text-center text-[11px] shadow-sm"
+                >
+                  ⚠️ {msg.text}
+                </div>
+              );
+            }
+
+            // Hint revealed announcement
+            if (msg.type === 'hint') {
+              return (
+                <div
+                  key={key}
+                  className="p-2 bg-cobalt/10 border border-cobalt/40 text-cobalt-dark font-bold rounded-lg text-center text-[11px]"
+                >
+                  💡 {msg.text}
+                </div>
+              );
+            }
+
+            // Chat from player who already guessed
+            if (msg.type === 'guessed_chat') {
+              return (
+                <div
+                  key={key}
+                  className={`p-1.5 rounded-lg border ${
+                    isMe
+                      ? 'bg-paper-warm border-ink/40 ml-4'
+                      : 'bg-paper border-ink/20 mr-4'
+                  }`}
+                >
+                  <span className="font-bold text-ink mr-1.5 text-lime-700">
+                    {msg.playerName || msg.sender} ✓:
+                  </span>
+                  <span className="text-ink break-words">{msg.text}</span>
+                </div>
+              );
+            }
+
+            // Normal guess or chat message
+            return (
+              <div
+                key={key}
+                className={`p-1.5 rounded-lg border ${
+                  isMe
+                    ? 'bg-paper-warm border-ink/40 ml-4'
+                    : 'bg-paper border-ink/20 mr-4'
+                }`}
+              >
+                <span className="font-bold text-ink mr-1.5">
+                  {msg.playerName || msg.sender || 'Artist'}:
+                </span>
+                <span className="text-ink break-words">{msg.text}</span>
+              </div>
+            );
+          })
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* ── Input Form ── */}
+      <form
+        onSubmit={handleSubmit}
+        className="p-2.5 bg-paper-warm border-t-2 border-ink flex items-center gap-2"
+      >
+        <input
+          type="text"
+          value={inputVal}
+          onChange={(e) => setInputVal(e.target.value)}
+          disabled={isDrawer && status === 'drawing'}
+          placeholder={
+            isDrawer && status === 'drawing'
+              ? '✏️ You are the artist! Draw your clues.'
+              : hasGuessedCorrectly
+              ? 'You guessed it! Chat here (no spoiling)...'
+              : 'Type your guess here...'
+          }
+          className="flex-1 px-3 py-2 bg-paper-pure border-2 border-ink rounded-xl text-xs font-bold text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-cobalt disabled:bg-paper-dark disabled:opacity-60 disabled:cursor-not-allowed"
+          maxLength={80}
+        />
+        <button
+          type="submit"
+          disabled={(isDrawer && status === 'drawing') || !inputVal.trim()}
+          className="px-3.5 py-2 bg-cobalt hover:bg-cobalt-hover text-white btn-tactile rounded-xl text-xs font-black disabled:opacity-50 disabled:cursor-not-allowed shadow-ink-sm"
+        >
+          Send
+        </button>
+      </form>
+    </div>
+  );
+}

@@ -1,0 +1,26 @@
+{
+  "name": "skribbl-clone-server",
+  "version": "1.0.0",
+  "description": "Skribbl.io Clone - Backend Server",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "node test-connection.js && node test-rooms.js && node test-game.js && node test-drawing.js",
+    "test:connection": "node test-connection.js",
+    "test:rooms": "node test-rooms.js",
+    "test:game": "node test-game.js",
+    "test:drawing": "node test-drawing.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5",
+    "uuid": "^11.1.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4",
+    "socket.io-client": "^4.8.4"
+  }
+}

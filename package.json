@@ -1,0 +1,11 @@
+{
+  "name": "skribbl-clone",
+  "version": "1.0.0",
+  "description": "Skribbl.io Clone - Web3Task Round 2",
+  "private": true,
+  "scripts": {
+    "server": "cd server && npm run dev",
+    "client": "cd client && npm run dev",
+    "dev": "Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd server; npm run dev' ; cd client; npm run dev"
+  }
+}

@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    background-color: #F7F4EE;
+    color: #18181B;
+    font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+  }
+
+  /* Custom tactile scrollbar */
+  ::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #EFEADF;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #71717A;
+    border-radius: 4px;
+    border: 1px solid #18181B;
+  }
+}
+
+@layer components {
+  /* Tactile Indie Game Button */
+  .btn-tactile {
+    @apply border-2 border-ink shadow-ink font-bold transition-all duration-100 select-none;
+  }
+  .btn-tactile:hover {
+    @apply -translate-x-[1px] -translate-y-[1px] shadow-ink-lg;
+  }
+  .btn-tactile:active {
+    @apply translate-x-[2px] translate-y-[2px] shadow-none;
+  }
+  .btn-tactile:disabled {
+    @apply opacity-50 cursor-not-allowed pointer-events-none shadow-none transform-none;
+  }
+
+  /* Masking tape decorative strip */
+  .tape-strip {
+    background: #FEF08A;
+    border: 1px dashed rgba(24, 24, 27, 0.25);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+
+  /* Sketchbook Paper Grid Texture */
+  .bg-notebook-grid {
+    background-size: 24px 24px;
+    background-image: 
+      linear-gradient(to right, rgba(217, 208, 190, 0.45) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(217, 208, 190, 0.45) 1px, transparent 1px);
+  }
+  
+  /* Notebook Dotted Texture */
+  .bg-notebook-dots {
+    background-size: 20px 20px;
+    background-image: radial-gradient(circle, rgba(113, 113, 122, 0.2) 1.2px, transparent 1.2px);
+  }
+}
+
+@layer utilities {
+  .cursor-crosshair {
+    cursor: crosshair;
+  }
+}
