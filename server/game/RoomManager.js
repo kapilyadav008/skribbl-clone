@@ -308,6 +308,11 @@ class RoomManager {
     // If room is completely empty, clean it up
     if (room.playerCount === 0 || room.connectedPlayerCount === 0) {
       this.cleanupRoom(roomCode);
+    } else if (room.game && typeof room.game.abortGame === 'function') {
+      // If game is in progress and player count dropped below minimum (2 players), abort to lobby
+      if (room.playerCount < CONSTANTS.ROOM.MIN_PLAYERS || room.connectedPlayerCount < CONSTANTS.ROOM.MIN_PLAYERS) {
+        room.game.abortGame('insufficient_players', 'Not enough players. Waiting for another player to join.');
+      }
     }
 
     if (typeof callback === 'function') {

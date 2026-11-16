@@ -35,7 +35,7 @@ export default function JoinPage() {
         if (data.isFull) {
           setError('This drawing room has reached maximum capacity!');
         } else if (data.status === 'playing') {
-          setError('A match is currently in progress at this table');
+          setError('A match is currently in progress in this room');
         }
       })
       .catch((err) => {
@@ -69,7 +69,7 @@ export default function JoinPage() {
       <div className="w-full max-w-md bg-paper-pure border-2 border-ink shadow-ink-xl rounded-2xl p-6 sm:p-8 relative">
         {/* Masking tape header badge */}
         <div className="tape-strip w-32 h-6 absolute -top-3 left-1/2 -translate-x-1/2 transform rotate-1 z-10 flex items-center justify-center">
-          <span className="text-[10px] font-mono tracking-widest text-ink font-bold opacity-80">TABLE INVITE</span>
+          <span className="text-[10px] font-mono tracking-widest text-ink font-bold opacity-80">ROOM INVITE</span>
         </div>
 
         {/* Card Header */}
@@ -116,7 +116,7 @@ export default function JoinPage() {
         ) : roomInfo && !error ? (
           <div className="bg-paper-warm border-2 border-ink/15 rounded-xl p-4 space-y-2 text-xs mb-5 shadow-inner">
             <div className="flex justify-between items-center text-ink-light">
-              <span className="font-medium">Artists at Table:</span>
+              <span className="font-medium">Players in Room:</span>
               <span className="font-mono font-bold text-ink bg-white px-2 py-0.5 rounded border border-ink/10">
                 {roomInfo.playerCount} / {roomInfo.maxPlayers}
               </span>
@@ -137,7 +137,7 @@ export default function JoinPage() {
           <form onSubmit={handleJoin} className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-xs font-mono font-bold uppercase tracking-wider text-ink-light flex items-center justify-between">
-                <span>Your Artist Nickname</span>
+                <span>Your Nickname</span>
                 <span className="font-hand text-sm text-cobalt normal-case font-bold">enter to claim your pencil</span>
               </label>
               <input
@@ -158,7 +158,7 @@ export default function JoinPage() {
               disabled={loading || checking}
               className="w-full py-3.5 bg-cobalt hover:bg-cobalt-hover text-white btn-tactile rounded-lg flex items-center justify-center gap-2 text-base font-black tracking-wide"
             >
-              {loading ? 'Entering Table...' : '✏️ Pull Up a Chair & Join'}
+              {loading ? 'Entering Room...' : '✏️ Join Game'}
             </button>
           </form>
         )}

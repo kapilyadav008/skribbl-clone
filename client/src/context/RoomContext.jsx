@@ -91,6 +91,10 @@ export function RoomProvider({ children }) {
         const totalCount =
           data.playerCount !== undefined ? data.playerCount : players.length;
 
+        if (connectedCount >= 2) {
+          setError(null);
+        }
+
         return {
           ...prev,
           players,
@@ -141,6 +145,10 @@ export function RoomProvider({ children }) {
             : players.filter((p) => p.isConnected).length;
         const totalCount =
           data.playerCount !== undefined ? data.playerCount : players.length;
+
+        if (connectedCount >= 2) {
+          setError(null);
+        }
 
         return {
           ...prev,
@@ -368,6 +376,9 @@ export function RoomProvider({ children }) {
       setGameState(initialGameState);
       if (data?.room) {
         setRoom(data.room);
+      }
+      if (data?.message) {
+        setError(data.message);
       }
       setChatMessages([]);
     };

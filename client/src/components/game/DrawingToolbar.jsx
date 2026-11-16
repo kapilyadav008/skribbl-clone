@@ -49,25 +49,29 @@ export default function DrawingToolbar({
   setBrushSize,
   onUndo,
   onClear,
+  compact = false,
 }) {
   if (!isDrawer) {
     return (
-      <div className="w-full bg-paper-light border-2 border-ink shadow-ink py-2.5 px-4 rounded-xl flex items-center justify-center text-sm font-bold text-ink">
-        <span className="inline-block w-2.5 h-2.5 rounded-full bg-coral mr-2.5 animate-pulse"></span>
-        <span>👀 You are currently guessing. Watch the canvas!</span>
-        <span className="ml-2 font-hand text-base text-ink-muted">Type guesses in chat</span>
+      <div className="w-full bg-paper-light border-2 border-ink shadow-ink py-2 px-3 sm:px-4 rounded-xl flex items-center justify-center text-xs sm:text-sm font-bold text-ink">
+        <span className="inline-block w-2 sm:w-2.5 h-2 sm:h-2.5 rounded-full bg-coral mr-2 animate-pulse"></span>
+        <span>👀 You are guessing! Watch the canvas & type in chat.</span>
       </div>
     );
   }
 
   return (
-    <div className="w-full bg-paper-light border-2 border-ink p-3 rounded-2xl shadow-ink flex flex-wrap items-center justify-between gap-3 select-none">
+    <div
+      className={`w-full bg-paper-light border-2 border-ink rounded-xl sm:rounded-2xl shadow-ink flex flex-wrap items-center justify-between gap-2 sm:gap-3 select-none ${
+        compact ? 'p-2' : 'p-2.5 sm:p-3'
+      }`}
+    >
       {/* ── Tool Selection (Brush / Eraser) ── */}
-      <div className="flex items-center gap-1.5 bg-paper p-1 rounded-xl border-2 border-ink">
+      <div className="flex items-center gap-1 bg-paper p-0.5 sm:p-1 rounded-xl border-2 border-ink">
         <button
           type="button"
           onClick={() => setTool('brush')}
-          className={`px-3 py-1.5 text-xs font-black tracking-wide rounded-lg transition-all flex items-center gap-1.5 ${
+          className={`px-2 sm:px-3 py-1 sm:py-1.5 text-[11px] sm:text-xs font-black tracking-wide rounded-lg transition-all flex items-center gap-1 ${
             tool === 'brush'
               ? 'bg-cobalt text-white shadow-ink-sm border-2 border-ink'
               : 'text-ink hover:bg-paper-dark border-2 border-transparent'
@@ -75,12 +79,12 @@ export default function DrawingToolbar({
           title="Brush tool"
         >
           <span>✏️</span>
-          <span>Brush</span>
+          <span className="hidden xs:inline">Brush</span>
         </button>
         <button
           type="button"
           onClick={() => setTool('eraser')}
-          className={`px-3 py-1.5 text-xs font-black tracking-wide rounded-lg transition-all flex items-center gap-1.5 ${
+          className={`px-2 sm:px-3 py-1 sm:py-1.5 text-[11px] sm:text-xs font-black tracking-wide rounded-lg transition-all flex items-center gap-1 ${
             tool === 'eraser'
               ? 'bg-coral text-white shadow-ink-sm border-2 border-ink'
               : 'text-ink hover:bg-paper-dark border-2 border-transparent'
@@ -88,12 +92,12 @@ export default function DrawingToolbar({
           title="Eraser tool"
         >
           <span>🧹</span>
-          <span>Eraser</span>
+          <span className="hidden xs:inline">Eraser</span>
         </button>
       </div>
 
-      {/* ── Color Palette Swatches ── */}
-      <div className="flex items-center flex-wrap gap-1.5 max-w-[270px] sm:max-w-xs">
+      {/* ── Color Palette Swatches (2-row grid on mobile, wrapped on desktop) ── */}
+      <div className="flex items-center flex-wrap gap-1 sm:gap-1.5 max-w-[220px] sm:max-w-xs justify-center">
         {COLORS.map((c) => {
           const isSelected = tool === 'brush' && color.toLowerCase() === c.toLowerCase();
           return (
@@ -104,7 +108,7 @@ export default function DrawingToolbar({
                 setColor(c);
                 if (tool === 'eraser') setTool('brush');
               }}
-              className={`w-6 h-6 rounded-md transition-transform border-2 border-ink ${
+              className={`w-5 h-5 sm:w-6 sm:h-6 rounded-md transition-transform border border-ink sm:border-2 ${
                 isSelected
                   ? 'scale-125 ring-2 ring-cobalt ring-offset-1 z-10 shadow-ink-sm'
                   : 'hover:scale-110 active:scale-95'
@@ -117,13 +121,13 @@ export default function DrawingToolbar({
       </div>
 
       {/* ── Brush Sizes ── */}
-      <div className="flex items-center gap-1 bg-paper p-1 rounded-xl border-2 border-ink">
+      <div className="flex items-center gap-0.5 sm:gap-1 bg-paper p-0.5 sm:p-1 rounded-xl border-2 border-ink">
         {BRUSH_SIZES.map(({ label, size, dotSize }) => (
           <button
             key={size}
             type="button"
             onClick={() => setBrushSize(size)}
-            className={`w-8 h-8 rounded-lg font-mono text-xs font-bold flex flex-col items-center justify-center transition-all ${
+            className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg font-mono text-[11px] sm:text-xs font-bold flex flex-col items-center justify-center transition-all ${
               brushSize === size
                 ? 'bg-ink text-paper shadow-ink-sm border-2 border-ink'
                 : 'text-ink hover:bg-paper-dark border-2 border-transparent'
@@ -131,30 +135,30 @@ export default function DrawingToolbar({
             title={`Brush size: ${size}px`}
           >
             <span className={`rounded-full bg-current ${dotSize} mb-0.5`}></span>
-            <span className="text-[10px] leading-none">{label}</span>
+            <span className="text-[9px] sm:text-[10px] leading-none">{label}</span>
           </button>
         ))}
       </div>
 
       {/* ── Undo & Clear Actions ── */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 sm:gap-2">
         <button
           type="button"
           onClick={onUndo}
-          className="btn-tactile px-3 py-1.5 text-xs font-black bg-paper hover:bg-paper-dark text-ink rounded-xl flex items-center gap-1"
+          className="btn-tactile px-2.5 sm:px-3 py-1 sm:py-1.5 text-[11px] sm:text-xs font-black bg-paper hover:bg-paper-dark text-ink rounded-lg sm:rounded-xl flex items-center gap-1"
           title="Undo last stroke"
         >
           <span>↩</span>
-          <span>Undo</span>
+          <span className="hidden xs:inline">Undo</span>
         </button>
         <button
           type="button"
           onClick={onClear}
-          className="btn-tactile px-3 py-1.5 text-xs font-black bg-coral/10 hover:bg-coral text-coral hover:text-white border-2 border-coral rounded-xl flex items-center gap-1 transition-colors"
+          className="btn-tactile px-2.5 sm:px-3 py-1 sm:py-1.5 text-[11px] sm:text-xs font-black bg-coral/10 hover:bg-coral text-coral hover:text-white border border-coral sm:border-2 rounded-lg sm:rounded-xl flex items-center gap-1 transition-colors"
           title="Clear canvas"
         >
           <span>🗑️</span>
-          <span>Clear</span>
+          <span className="hidden xs:inline">Clear</span>
         </button>
       </div>
     </div>

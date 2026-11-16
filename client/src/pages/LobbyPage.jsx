@@ -92,14 +92,14 @@ export default function LobbyPage() {
         <div className="max-w-md w-full bg-paper-pure border-2 border-ink shadow-ink-xl rounded-2xl p-6 text-center space-y-4 relative">
           <div className="tape-strip w-28 h-5 absolute -top-2.5 left-1/2 -translate-x-1/2 transform -rotate-1"></div>
           <h2 className="text-2xl font-black uppercase tracking-tight text-ink">
-            Studio Table: <span className="text-coral font-mono">{cleanCode}</span>
+            Room: <span className="text-coral font-mono">{cleanCode}</span>
           </h2>
           <p className="text-xs text-ink-light font-medium">
-            Please write your artist nickname to take a seat at this table.
+            Please enter your nickname to join this room.
           </p>
           <input
             type="text"
-            placeholder="Your artist name..."
+            placeholder="Your name..."
             value={reconnectName}
             onChange={(e) => setReconnectName(e.target.value)}
             className="w-full px-4 py-3 bg-paper border-2 border-ink rounded-lg text-ink font-bold text-sm focus:outline-none focus:bg-white"
@@ -120,7 +120,7 @@ export default function LobbyPage() {
               }}
               className="flex-1 py-2.5 bg-cobalt hover:bg-cobalt-hover text-white btn-tactile rounded-lg text-xs font-black"
             >
-              Take Seat
+              Join Room
             </button>
           </div>
         </div>
@@ -148,7 +148,7 @@ export default function LobbyPage() {
             isOpen={true}
             isDrawer={gameState.isDrawer}
             wordChoices={gameState.wordChoices}
-            drawerName={gameState.currentDrawer?.name || 'The artist'}
+            drawerName={gameState.currentDrawer?.name || 'The drawer'}
             timeLeft={gameState.timeLeft}
             onSelectWord={selectWord}
             error={error}
@@ -245,19 +245,19 @@ export default function LobbyPage() {
 
         {/* Studio Workspace Layout */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-          {/* Left: Artists at the Table (2 Columns) */}
+          {/* Left: Players in the Room (2 Columns) */}
           <div className="md:col-span-2 bg-paper-pure border-2 border-ink shadow-ink-lg rounded-2xl p-6 space-y-4 relative">
             {/* Header */}
             <div className="flex items-center justify-between border-b-2 border-ink/10 pb-3">
               <div>
                 <h2 className="text-lg font-black uppercase text-ink flex items-center gap-2">
-                  <span>Artists at Table</span>
+                  <span>Players</span>
                   <TapeBadge color="bg-tape-yellow">
                     {connectedCount} / {room?.settings?.maxPlayers || 8}
                   </TapeBadge>
                 </h2>
                 <p className="font-hand text-sm text-ink-light mt-0.5">
-                  Grab your pencils while waiting for the bell
+                  Waiting for players to get ready
                 </p>
               </div>
             </div>
@@ -295,7 +295,7 @@ export default function LobbyPage() {
                           )}
                         </div>
                         <span className="text-[11px] font-hand text-ink-light block">
-                          {p.isConnected ? 'seated with pencil' : 'stepped away (saving seat)'}
+                          {p.isConnected ? 'Ready' : 'Disconnected (reconnecting)'}
                         </span>
                       </div>
                     </div>
@@ -311,13 +311,13 @@ export default function LobbyPage() {
             </div>
           </div>
 
-          {/* Right: Table Rules & Start Game (1 Column) */}
+          {/* Right: Game Rules & Start Game (1 Column) */}
           <div className="space-y-6">
             {/* Rules / Settings Card */}
             <div className="bg-paper-pure border-2 border-ink shadow-ink-lg rounded-2xl p-6 space-y-4">
               <div className="flex items-center justify-between border-b-2 border-ink/10 pb-3">
                 <h3 className="font-black text-sm uppercase text-ink tracking-wider flex items-center gap-1.5">
-                  <span>📜 Table Rules</span>
+                  <span>📜 Game Rules</span>
                 </h3>
                 {isHost && (
                   <button
@@ -375,18 +375,18 @@ export default function LobbyPage() {
                         ? '🎨 Choosing Word...'
                         : gameStarted
                         ? 'Match In Progress'
-                        : '🔔 Ring Bell & Start'}
+                        : 'Start Game'}
                     </span>
                   </button>
 
                   {!canStart && !gameStarted && (
                     <p className="text-xs font-hand text-coral-hover font-bold">
-                      Need at least 2 seated artists to begin ({connectedPlayers.length}/2)
+                      Not enough players. Waiting for another player to join ({connectedPlayers.length}/2)
                     </p>
                   )}
                   {canStart && !gameStarted && (
                     <p className="text-xs font-hand text-ink-light font-bold">
-                      Ready! Ring the bell whenever you are set.
+                      Ready! Click Start Game when ready.
                     </p>
                   )}
                   {gameState?.status === 'selecting_word' && (
@@ -401,7 +401,9 @@ export default function LobbyPage() {
                   <p className="font-hand text-lg text-ink font-bold">
                     {gameState?.status === 'selecting_word'
                       ? 'Choosing a secret word to sketch...'
-                      : 'Waiting for the host to ring the studio bell...'}
+                      : connectedPlayers.length < 2
+                      ? 'Not enough players. Waiting for another player to join.'
+                      : 'Waiting for the host to start the game...'}
                   </p>
                   <p className="text-[11px] font-mono text-ink-faint">
                     {gameState?.status === 'selecting_word'
@@ -422,8 +424,8 @@ export default function LobbyPage() {
           onClose={() => setIsSettingsModalOpen(false)}
           initialSettings={room?.settings || {}}
           onSave={handleSaveSettings}
-          title="Edit Table Rules"
-          submitButtonText="Apply to Table"
+          title="Edit Game Rules"
+          submitButtonText="Save Rules"
         />
       )}
     </div>

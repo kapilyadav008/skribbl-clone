@@ -100,6 +100,10 @@ class GameManager {
 
     // Race condition guard: prevents double execution of endRound
     this.isRoundEnding = false;
+    this.isAborting = false;
+
+    // Per-turn points earned tracking for round-end breakdown
+    this.turnPoints = new Map();
   }
 
   // ── 1. Validation & Eligibility ──────────────────────────────────────────
@@ -188,6 +192,13 @@ class GameManager {
     this.correctGuessCount = 0;
     this.correctGuessers.clear();
 
+    // Verify minimum connected players before beginning turn
+    const activeConnected = Array.from(this.room.players.values()).filter((p) => p.isConnected);
+    if (activeConnected.length < CONSTANTS.ROOM.MIN_PLAYERS) {
+      this.abortGame('insufficient_players', 'Not enough players. Waiting for another player to join.');
+      return;
+    }
+
     // Check if current round's drawer sequence is exhausted
     if (this.currentDrawerIndex >= this.drawerOrder.length) {
       if (this.currentRound < this.totalRounds) {
@@ -200,8 +211,8 @@ class GameManager {
           .map((p) => p.sessionId);
 
         if (this.drawerOrder.length < CONSTANTS.ROOM.MIN_PLAYERS) {
-          // If players dropped below minimum, end game
-          this.endGame('insufficient_players');
+          // If players dropped below minimum, abort game to lobby
+          this.abortGame('insufficient_players', 'Not enough players. Waiting for another player to join.');
           return;
         }
       } else {
@@ -222,6 +233,7 @@ class GameManager {
     }
 
     this.currentDrawerId = drawerSessionId;
+    this.turnPoints.clear();
 
     // Reset player turn states
     for (const player of this.room.players.values()) {
@@ -349,6 +361,18 @@ class GameManager {
       }
     }
 
+    // Broadcast turn announcement to room chat (blue notification)
+    if (drawer) {
+      this.io.to(this.room.roomCode).emit('chat_message', {
+        id: `turn-${Date.now()}-${drawer.sessionId}`,
+        sender: 'SketchClub',
+        playerName: drawer.name,
+        text: `${drawer.name} is now drawing!`,
+        type: 'drawer_turn',
+        timestamp: Date.now(),
+      });
+    }
+
     // Start server-side countdown interval
     this.startRoundTimer();
   }
@@ -454,15 +478,6 @@ class GameManager {
       wordDisplay: this.currentWordDisplay.display,
       revealedCount: this.revealedHintIndices.size,
     });
-
-    // Also broadcast a system chat notification
-    this.io.to(this.room.roomCode).emit('chat_message', {
-      id: `hint-${Date.now()}`,
-      sender: 'Studio',
-      text: `Hint: A letter was revealed! (${this.currentWordDisplay.display})`,
-      type: 'hint',
-      timestamp: Date.now(),
-    });
   }
 
   // ── 5. Guess Evaluation & Scoring ───────────────────────────────────────
@@ -544,6 +559,7 @@ class GameManager {
     const pointsAwarded = remainingSec * multiplier;
     player.score += pointsAwarded;
     this.correctGuessCount++;
+    this.turnPoints.set(sessionId, pointsAwarded);
 
     // Broadcast correct guess to the entire room (DOES NOT reveal secret word)
     this.io.to(this.room.roomCode).emit('correct_guess', {
@@ -610,9 +626,21 @@ class GameManager {
       drawer.score += drawerBonus;
     }
 
+    // Build per-player earnings for this turn
+    const turnEarnings = {};
+    if (this.turnPoints) {
+      for (const [sId, pts] of this.turnPoints.entries()) {
+        turnEarnings[sId] = pts;
+      }
+    }
+    if (drawerBonus > 0 && this.currentDrawerId) {
+      turnEarnings[this.currentDrawerId] = (turnEarnings[this.currentDrawerId] || 0) + drawerBonus;
+    }
+
     // Retain round-end metadata for reconnection snapshot
     this.lastRoundReason = reason;
     this.lastDrawerBonus = drawerBonus;
+    this.lastTurnEarnings = turnEarnings;
 
     // Build final score snapshot for this round
     const scoreSnapshot = Array.from(this.room.players.values()).map((p) => ({
@@ -627,6 +655,7 @@ class GameManager {
       drawerId: this.currentDrawerId,
       drawerBonus,
       scores: scoreSnapshot,
+      turnEarnings,
       reason,
     });
 
@@ -668,6 +697,72 @@ class GameManager {
     });
 
     console.log(`[GameManager] Game over in room ${this.room.roomCode}. Reason: ${reason}`);
+  }
+
+  /**
+   * Aborts an active game and returns the room safely to the lobby.
+   * Invoked when active player count drops below minimum required (2 players).
+   * @param {string} [reason='insufficient_players']
+   * @param {string} [message='Not enough players. Waiting for another player to join.']
+   */
+  abortGame(reason = 'insufficient_players', message = 'Not enough players. Waiting for another player to join.') {
+    // Guard against duplicate execution
+    if (this.isAborting || this.roundStatus === 'idle') {
+      return;
+    }
+    this.isAborting = true;
+    this.roundStatus = 'idle';
+
+    console.log(`[GameManager] Aborting game in room ${this.room?.roomCode}: ${reason}`);
+
+    // 1. Immediately cancel all timers and intervals
+    this.clearTimers();
+
+    // 2. Clear canvas data on server and clients
+    if (this.drawingManager) {
+      if (typeof this.drawingManager.clear === 'function') {
+        this.drawingManager.clear();
+      } else if (typeof this.drawingManager.reset === 'function') {
+        this.drawingManager.reset();
+      }
+    }
+    this.io.to(this.room.roomCode).emit('canvas_cleared');
+
+    // 3. Reset turn and game state variables
+    this.currentWord = null;
+    this.currentWordDisplay = null;
+    this.offeredWords = [];
+    this.currentDrawerId = null;
+    this.correctGuessers.clear();
+    this.correctGuessCount = 0;
+    this.turnPoints.clear();
+    this.isRoundEnding = false;
+
+    // 4. Reset room state back to waiting lobby
+    this.room.status = 'waiting';
+    this.room.game = null;
+
+    // Reset scores & per-round state for all remaining players
+    for (const player of this.room.players.values()) {
+      player.score = 0;
+      player.resetRoundState();
+    }
+
+    // 5. Broadcast returned_to_lobby to all remaining clients in the room
+    this.io.to(this.room.roomCode).emit('returned_to_lobby', {
+      room: this.room.toPublic(),
+      reason,
+      message,
+    });
+
+    // 6. Broadcast system notification to room chat
+    this.io.to(this.room.roomCode).emit('chat_message', {
+      id: `sys-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      sender: 'SketchClub',
+      text: message,
+      type: 'system',
+      timestamp: Date.now(),
+    });
   }
 
   // ── 8. Disconnect Handlers ──────────────────────────────────────────────
@@ -775,6 +870,7 @@ class GameManager {
         drawerId: this.currentDrawerId,
         drawerBonus: this.lastDrawerBonus || 0,
         scores: scoreSnapshot,
+        turnEarnings: this.lastTurnEarnings || {},
         reason: this.lastRoundReason || 'time_up',
       });
     }

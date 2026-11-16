@@ -7,7 +7,7 @@
  * - Celebratory SketchClub winner's podium (1st, 2nd, 3rd place).
  * - Full ranked final scoreboard.
  * - Graceful tie handling.
- * - Host actions: "Play Again", "Return to Studio Table".
+ * - Host actions: "Play Again", "Return to Lobby".
  * - All players: "Leave Room".
  */
 
@@ -63,7 +63,7 @@ export default function GameOverModal() {
             {isTie ? '🎉 We Have a Tie! 🎉' : '🏆 SketchClub Champions!'}
           </h2>
           <p className="text-xs font-hand text-ink-light text-base font-bold">
-            All rounds complete! Here are the final master artist standings:
+            All rounds complete! Here are the final player standings:
           </p>
         </div>
 
@@ -128,10 +128,10 @@ export default function GameOverModal() {
           </div>
         </div>
 
-        {/* ── Complete Final Leaderboard Table ── */}
+        {/* ── Complete Final Leaderboard ── */}
         <div className="bg-paper-warm border-2 border-ink rounded-2xl p-4 space-y-2 text-left">
           <div className="flex justify-between text-xs font-black uppercase text-ink-light border-b border-ink/20 pb-1.5 font-mono">
-            <span>RANK & ARTIST</span>
+            <span>RANK & PLAYER</span>
             <span>FINAL SCORE</span>
           </div>
           <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1 text-xs">
@@ -176,12 +176,12 @@ export default function GameOverModal() {
                 onClick={returnToLobbyAction}
                 className="w-full sm:flex-1 py-3 bg-cobalt hover:bg-cobalt-hover text-white btn-tactile rounded-xl text-sm font-black shadow-ink"
               >
-                📜 Return to Table
+                📜 Back to Lobby
               </button>
             </>
           ) : (
             <div className="w-full sm:flex-1 py-2 text-xs font-hand text-ink font-bold">
-              Waiting for host to restart match or return to table...
+              Waiting for host to restart match or return to lobby...
             </div>
           )}
 

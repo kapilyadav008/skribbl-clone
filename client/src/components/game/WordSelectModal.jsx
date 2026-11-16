@@ -35,7 +35,7 @@ export default function WordSelectModal(props) {
   const drawerName =
     props.drawerName ||
     roomContext.gameState?.currentDrawer?.name ||
-    'The artist';
+    'The drawer';
 
   const initialTimeLeft =
     props.timeLeft !== undefined
@@ -115,7 +115,7 @@ export default function WordSelectModal(props) {
                 Choose a secret word to draw!
               </h2>
               <p className="text-xs text-ink-light font-medium mt-1">
-                Pick an option below to begin sketching for the table.
+                Pick an option below to begin sketching for the room.
               </p>
             </div>
 
@@ -211,7 +211,7 @@ export default function WordSelectModal(props) {
           <div className="space-y-5 py-2">
             <div>
               <TapeBadge color="bg-tape-cyan" className="mb-2">
-                ARTIST AT WORK
+                DRAWER AT WORK
               </TapeBadge>
               <h2
                 id="word-select-title"

@@ -8,7 +8,7 @@
  */
 
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useRoom } from '../context/RoomContext';
 import SettingsModal from '../components/lobby/SettingsModal';
 import { StarDoodle, ScribbleUnderline, TapeBadge, HandArrow } from '../components/common/Doodles';
@@ -25,7 +25,7 @@ export default function HomePage() {
   // ── Handle Create Room ───────────────────────────────────────────────────
   const handleOpenCreateModal = () => {
     if (!name.trim()) {
-      setLocalError('Please write your nickname before creating a table');
+      setLocalError('Please write your nickname before creating a room');
       return;
     }
     setLocalError('');
@@ -95,7 +95,7 @@ export default function HomePage() {
           <div className="flex items-center justify-center gap-2 mb-1">
             <span className="text-2xl">✏️</span>
             <TapeBadge color="bg-lime" rotate="rotate-1">
-              Tabletop Edition
+              Multiplayer Edition
             </TapeBadge>
             <span className="text-2xl">🎨</span>
           </div>
@@ -135,7 +135,7 @@ export default function HomePage() {
           {/* Player Name Input */}
           <div className="space-y-1.5">
             <label className="text-xs font-mono font-bold uppercase tracking-wider text-ink-light flex items-center justify-between">
-              <span>Your Artist Nickname</span>
+              <span>Your Nickname</span>
               <span className="font-hand text-sm text-cobalt normal-case font-bold">what friends call you</span>
             </label>
             <div className="relative">
@@ -161,7 +161,7 @@ export default function HomePage() {
               disabled={loading}
               className="w-full py-3.5 bg-cobalt hover:bg-cobalt-hover text-white btn-tactile rounded-lg flex items-center justify-center gap-2 text-base font-black tracking-wide"
             >
-              <span>✨ Host a Drawing Room</span>
+              <span>✨ Create Private Room</span>
             </button>
             <p className="text-[11px] text-ink-faint text-center mt-1.5 font-medium">
               Configure rounds, drawing timer & invite your friends
@@ -197,20 +197,14 @@ export default function HomePage() {
               disabled={loading}
               className="w-full py-3.5 bg-coral hover:bg-coral-hover text-white btn-tactile rounded-lg flex items-center justify-center gap-2 text-base font-black tracking-wide"
             >
-              {loading ? 'Entering Table...' : '🚀 Join Room with Code'}
+              {loading ? 'Entering Room...' : '🚀 Join Room with Code'}
             </button>
           </form>
         </div>
 
-        {/* Footer info & Diagnostics Link */}
-        <div className="mt-6 pt-4 border-t border-paper-dark text-center flex items-center justify-between text-xs text-ink-faint">
+        {/* Footer info */}
+        <div className="mt-6 pt-4 border-t border-paper-dark text-center text-xs text-ink-faint">
           <span className="font-hand text-base text-ink-light">Instant play • No login required</span>
-          <Link
-            to="/debug-connection"
-            className="hover:text-cobalt font-mono font-bold underline transition-colors"
-          >
-            Diagnostics ⚙️
-          </Link>
         </div>
       </div>
 
@@ -219,8 +213,8 @@ export default function HomePage() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onSave={handleCreateRoomConfirm}
-        title="Custom Studio Rules"
-        submitButtonText="Create Table & Enter Lobby"
+        title="Game Rules"
+        submitButtonText="Create Room & Enter Lobby"
         loading={loading}
       />
     </div>

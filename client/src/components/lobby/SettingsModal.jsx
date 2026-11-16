@@ -14,7 +14,7 @@ export default function SettingsModal({
   onClose,
   initialSettings = {},
   onSave,
-  title = 'Studio Rules',
+  title = 'Game Rules',
   submitButtonText = 'Apply Rules',
   loading = false,
 }) {
@@ -69,9 +69,9 @@ export default function SettingsModal({
           {/* Max Players */}
           <div className="bg-paper p-3 rounded-xl border border-ink/15">
             <div className="flex justify-between items-center mb-1">
-              <span className="text-ink-light uppercase font-mono tracking-wider">Table Size:</span>
+              <span className="text-ink-light uppercase font-mono tracking-wider">Room Capacity:</span>
               <span className="font-mono font-black text-sm bg-paper-pure px-2 py-0.5 rounded border border-ink/15 text-cobalt">
-                {settings.maxPlayers} Artists
+                {settings.maxPlayers} Players
               </span>
             </div>
             <input

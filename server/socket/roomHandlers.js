@@ -118,8 +118,12 @@ function registerRoomHandlers(io, socket) {
       roomManager.socketMap.delete(socket.id);
 
       const activeRoom = roomManager.getRoom(roomCode);
-      if (activeRoom && activeRoom.game && typeof activeRoom.game.handlePlayerDisconnect === 'function') {
-        activeRoom.game.handlePlayerDisconnect(sessionId);
+      if (activeRoom && activeRoom.game) {
+        if (activeRoom.playerCount <= 2 || activeRoom.connectedPlayerCount <= 2) {
+          activeRoom.game.abortGame('insufficient_players', 'Not enough players. Waiting for another player to join.');
+        } else if (typeof activeRoom.game.handlePlayerDisconnect === 'function') {
+          activeRoom.game.handlePlayerDisconnect(sessionId);
+        }
       }
 
       roomManager.permanentlyRemovePlayer(
@@ -138,6 +142,12 @@ function registerRoomHandlers(io, socket) {
                 : remainingPlayers.filter((p) => p.isConnected).length,
               newHostId: newHost ? newHost.id : null,
             });
+
+            if (currentRoom && currentRoom.game && typeof currentRoom.game.abortGame === 'function') {
+              if (currentRoom.playerCount < 2 || currentRoom.connectedPlayerCount < 2) {
+                currentRoom.game.abortGame('insufficient_players', 'Not enough players. Waiting for another player to join.');
+              }
+            }
           }
         }
       );
@@ -165,6 +175,13 @@ function registerRoomHandlers(io, socket) {
             : remainingPlayers.filter((p) => p.isConnected).length,
           newHostId: newHost ? newHost.id : null,
         });
+
+        // If an active game was running and player count dropped below minimum
+        if (currentRoom && currentRoom.game && typeof currentRoom.game.abortGame === 'function') {
+          if (currentRoom.playerCount < 2 || currentRoom.connectedPlayerCount < 2) {
+            currentRoom.game.abortGame('insufficient_players', 'Not enough players. Waiting for another player to join.');
+          }
+        }
       }
     });
 
