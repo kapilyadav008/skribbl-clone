@@ -75,7 +75,6 @@ export default function ChatPanel({
   const { player, gameState, chatMessages } = useRoom();
 
   const messagesContainerRef = useRef(null);
-  const messagesEndRef = useRef(null);
   const isNearBottomRef = useRef(true);
 
   const isDrawer = Boolean(gameState?.isDrawer);
@@ -84,7 +83,7 @@ export default function ChatPanel({
   // Filter out any redundant hint messages (Change 5)
   const visibleMessages = chatMessages.filter((msg) => msg.type !== 'hint');
 
-  // Handle scroll position: track if user scrolled up
+  // Handle scroll position: track if user scrolled up within the chat container
   const handleScroll = () => {
     if (!messagesContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
@@ -92,10 +91,11 @@ export default function ChatPanel({
     isNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 60;
   };
 
-  // Smart auto-scroll: only scroll down if already near bottom (Change 3)
+  // Smart auto-scroll: strictly scroll only the chat container without touching window scroll
   useEffect(() => {
-    if (isNearBottomRef.current && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    if (container && isNearBottomRef.current) {
+      container.scrollTop = container.scrollHeight;
     }
   }, [visibleMessages]);
 
@@ -203,6 +203,18 @@ export default function ChatPanel({
               );
             }
 
+            // System message (e.g. joined/left room)
+            if (msg.type === 'system') {
+              return (
+                <div
+                  key={key}
+                  className="py-1 px-2 text-center text-[11px] font-mono font-medium text-ink-light italic"
+                >
+                  {msg.text}
+                </div>
+              );
+            }
+
             // Normal guess or chat message
             return (
               <div
@@ -221,7 +233,6 @@ export default function ChatPanel({
             );
           })
         )}
-        <div ref={messagesEndRef} />
       </div>
 
       {/* ── Input Form ── */}

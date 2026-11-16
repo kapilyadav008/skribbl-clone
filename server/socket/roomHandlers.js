@@ -58,6 +58,11 @@ function registerRoomHandlers(io, socket) {
         room.game.sendReconnectState(socket, player.sessionId);
       }
 
+      // Check auto-win condition if an active game is running (cancels countdown if another player joined/reconnected)
+      if (room.game && typeof room.game.checkAutoWinCondition === 'function') {
+        room.game.checkAutoWinCondition();
+      }
+
       // Broadcast to everyone in the room that a player joined / reconnected
       io.to(room.roomCode).emit('player_joined', {
         player: player.toPublic(),
@@ -66,6 +71,16 @@ function registerRoomHandlers(io, socket) {
         connectedPlayerCount: room.connectedPlayerCount,
         isReconnect,
       });
+
+      if (!isReconnect) {
+        io.to(room.roomCode).emit('chat_message', {
+          id: `join-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          sender: 'SketchClub',
+          text: `${player.name} joined the room.`,
+          type: 'system',
+          timestamp: Date.now(),
+        });
+      }
 
       console.log(
         `[Socket] ${player.name} (${player.sessionId}) ${
@@ -118,12 +133,8 @@ function registerRoomHandlers(io, socket) {
       roomManager.socketMap.delete(socket.id);
 
       const activeRoom = roomManager.getRoom(roomCode);
-      if (activeRoom && activeRoom.game) {
-        if (activeRoom.playerCount <= 2 || activeRoom.connectedPlayerCount <= 2) {
-          activeRoom.game.abortGame('insufficient_players', 'Not enough players. Waiting for another player to join.');
-        } else if (typeof activeRoom.game.handlePlayerDisconnect === 'function') {
-          activeRoom.game.handlePlayerDisconnect(sessionId);
-        }
+      if (activeRoom && activeRoom.game && typeof activeRoom.game.handlePlayerDisconnect === 'function') {
+        activeRoom.game.handlePlayerDisconnect(sessionId);
       }
 
       roomManager.permanentlyRemovePlayer(
@@ -143,10 +154,18 @@ function registerRoomHandlers(io, socket) {
               newHostId: newHost ? newHost.id : null,
             });
 
-            if (currentRoom && currentRoom.game && typeof currentRoom.game.abortGame === 'function') {
-              if (currentRoom.playerCount < 2 || currentRoom.connectedPlayerCount < 2) {
-                currentRoom.game.abortGame('insufficient_players', 'Not enough players. Waiting for another player to join.');
-              }
+            if (removedPlayerName) {
+              io.to(roomCode).emit('chat_message', {
+                id: `leave-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                sender: 'SketchClub',
+                text: `${removedPlayerName} left the room.`,
+                type: 'system',
+                timestamp: Date.now(),
+              });
+            }
+
+            if (currentRoom && currentRoom.game && typeof currentRoom.game.checkAutoWinCondition === 'function') {
+              currentRoom.game.checkAutoWinCondition();
             }
           }
         }
@@ -176,11 +195,19 @@ function registerRoomHandlers(io, socket) {
           newHostId: newHost ? newHost.id : null,
         });
 
-        // If an active game was running and player count dropped below minimum
-        if (currentRoom && currentRoom.game && typeof currentRoom.game.abortGame === 'function') {
-          if (currentRoom.playerCount < 2 || currentRoom.connectedPlayerCount < 2) {
-            currentRoom.game.abortGame('insufficient_players', 'Not enough players. Waiting for another player to join.');
-          }
+        if (removedPlayerName) {
+          io.to(roomCode).emit('chat_message', {
+            id: `leave-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            sender: 'SketchClub',
+            text: `${removedPlayerName} left the room.`,
+            type: 'system',
+            timestamp: Date.now(),
+          });
+        }
+
+        // If an active game was running, re-evaluate auto-win condition
+        if (currentRoom && currentRoom.game && typeof currentRoom.game.checkAutoWinCondition === 'function') {
+          currentRoom.game.checkAutoWinCondition();
         }
       }
     });
@@ -191,6 +218,11 @@ function registerRoomHandlers(io, socket) {
       // Notify active game if running
       if (room.game && typeof room.game.handlePlayerDisconnect === 'function') {
         room.game.handlePlayerDisconnect(player.sessionId);
+      }
+
+      // Check auto-win condition if an active game is running
+      if (room.game && typeof room.game.checkAutoWinCondition === 'function') {
+        room.game.checkAutoWinCondition();
       }
 
       // Notify other players that this player is temporarily disconnected

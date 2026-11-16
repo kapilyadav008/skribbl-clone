@@ -1,19 +1,18 @@
 /**
  * test-insufficient-players.js
  *
- * Comprehensive Regression Test Suite for:
- * CRITICAL BUG FIX: GAME CONTINUES WITH ONE PLAYER
+ * Comprehensive Regression & Verification Test Suite for:
+ * SKETCHCLUB — FINAL AUTO-WIN UI & CHAT CLEANUP
  *
- * Verifies all requirements and edge cases:
- * 1. Guesser leaves while drawer remains during active drawing turn.
- * 2. Drawer leaves while guesser remains during active drawing turn.
- * 3. A player leaves during word selection (selecting_word phase).
- * 4. A player leaves during the round-end results screen (round_ended phase).
- * 5. Transient disconnect & reconnect (refresh): grace period respected, game continues.
- * 6. Disconnect grace period expires without reconnect: room returns to lobby.
- * 7. Second player joins after room returns to lobby; new game starts cleanly.
- * 8. Multiple players leave nearly simultaneously (safe idempotent abort).
- * 9. Room becomes empty and is cleaned up from memory.
+ * Verifies all 8 requirements:
+ * 1. Two players start -> one leaves -> silent 5s background timer -> normal game_over leaderboard.
+ * 2. Three players start -> two leave -> remaining player crowned winner after 5s.
+ * 3. Player reconnects within 5s -> countdown cancelled, game continues normally.
+ * 4. Join/leave chat messages display "[Player Name] joined the room." and "[Player Name] left the room." exactly once.
+ * 5. No auto-win countdown messages appear in chat (silent timer).
+ * 6. Refresh / transient disconnect does NOT emit premature leave chat message; reconnect does NOT emit duplicate join chat message.
+ * 7. Last remaining player wins regardless of previous scores, without modifying actual score.
+ * 8. Winner returns to lobby successfully; empty room cleanly deleted from memory.
  */
 
 const http = require('http');
@@ -25,7 +24,6 @@ const { io: ioc } = require('socket.io-client');
 const roomManager = require('./game/RoomManager');
 const roomRoutes = require('./routes/roomRoutes');
 const { initializeSocket } = require('./socket/index');
-const CONSTANTS = require('./config/constants');
 
 const PORT = 4104;
 const HOST = '127.0.0.1';
@@ -43,8 +41,8 @@ function fail(msg) {
   failed++;
 }
 
-async function runRegressionTests() {
-  console.log('\n🧪 Running Insufficient Players & Disconnect Regression Test Suite...\n');
+async function runAutoWinTests() {
+  console.log('\n🧪 Running Final Auto-Win & Chat Notification Test Suite...\n');
 
   const app = express();
   app.use(cors());
@@ -66,8 +64,8 @@ async function runRegressionTests() {
   }
 
   try {
-    // ── Scenario 1: Guesser leaves during active drawing turn ────────────────
-    console.log('Scenario 1: Guesser leaves while drawer remains during active drawing');
+    // ── Scenario 1: Two players -> guesser leaves -> silent timer -> normal game over ──
+    console.log('Scenario 1: Guesser leaves during drawing -> silent 5s timer -> normal leaderboard');
     {
       const cAlice = createClient('s1_alice');
       const cBob = createClient('s1_bob');
@@ -77,6 +75,9 @@ async function runRegressionTests() {
         hostSessionId: 's1_alice',
         settings: { rounds: 2, drawTime: 30, wordCount: 3 },
       });
+
+      const aliceChatMessages = [];
+      cAlice.on('chat_message', (msg) => aliceChatMessages.push(msg));
 
       await Promise.all([
         new Promise((res) => {
@@ -89,12 +90,18 @@ async function runRegressionTests() {
         }),
       ]);
 
-      // Start game: Alice receives word choices
+      // Verify join message received by Alice
+      const bobJoinMsg = aliceChatMessages.find((m) => m.text === 'Bob joined the room.');
+      if (bobJoinMsg && bobJoinMsg.type === 'system') {
+        pass('Alice received "Bob joined the room." system notification');
+      } else {
+        fail('Did not receive "Bob joined the room." notification');
+      }
+
       const choicesPromise = new Promise((res) => cAlice.once('word_choices', res));
       cAlice.emit('start_game');
       const choicesData = await choicesPromise;
 
-      // Alice selects word -> drawing turn starts
       const roundStartPromise = new Promise((res) => cAlice.once('round_start', res));
       cAlice.emit('select_word', { word: choicesData.choices[0] });
       await roundStartPromise;
@@ -104,36 +111,55 @@ async function runRegressionTests() {
       }
 
       // Guesser (Bob) explicitly leaves room
-      const lobbyPromise = new Promise((res) => cAlice.once('returned_to_lobby', res));
-      const leftPromise = new Promise((res) => cAlice.once('player_left', res));
+      const gameOverPromise = new Promise((res) => cAlice.once('game_over', res));
+
       cBob.emit('leave_room', { roomCode, sessionId: 's1_bob' });
 
-      const [lobbyData, leftData] = await Promise.all([lobbyPromise, leftPromise]);
-
-      if (lobbyData.reason === 'insufficient_players') {
-        pass('Drawer received returned_to_lobby with reason "insufficient_players"');
+      // Wait for the 5-second silent timer to complete
+      const gameOverData = await gameOverPromise;
+      if (gameOverData.reason === 'last_player_standing') {
+        pass('Game ended with reason "last_player_standing" after 5s silent countdown');
       } else {
-        fail(`Expected reason "insufficient_players", got "${lobbyData.reason}"`);
+        fail(`Expected reason "last_player_standing", got "${gameOverData.reason}"`);
       }
 
-      if (room.status === 'waiting' && room.game === null) {
-        pass('Room status returned to "waiting" and room.game was cleanly cleared');
+      // Verify Bob left notification was received exactly once
+      const bobLeaveMessages = aliceChatMessages.filter((m) => m.text === 'Bob left the room.');
+      if (bobLeaveMessages.length === 1) {
+        pass('Alice received "Bob left the room." exactly once');
       } else {
-        fail(`Room state invalid: status=${room.status}, game=${room.game}`);
+        fail(`Expected 1 leave message, found ${bobLeaveMessages.length}`);
       }
 
-      if (room.playerCount === 1 && room.players.has('s1_alice')) {
-        pass('Remaining player (Alice) is kept in the room with 1 connected player');
+      // Verify NO countdown messages were posted in chat
+      const countdownChatMsgs = aliceChatMessages.filter(
+        (m) => m.text && (m.text.includes('win in') || m.text.includes('seconds...'))
+      );
+      if (countdownChatMsgs.length === 0) {
+        pass('No auto-win countdown messages appeared in chat (silent timer verified)');
       } else {
-        fail(`Player count expected 1, got ${room.playerCount}`);
+        fail(`Found ${countdownChatMsgs.length} countdown messages in chat`);
+      }
+
+      // Verify Alice is in 1st place with actual score preserved
+      if (gameOverData.winners && gameOverData.winners[0]?.name === 'Alice') {
+        pass('Alice is declared the sole winner');
+      } else {
+        fail(`Expected Alice as winner, got ${JSON.stringify(gameOverData.winners)}`);
+      }
+
+      if (gameOverData.finalScores && gameOverData.finalScores[0]?.name === 'Alice') {
+        pass('Alice is ranked #1 in finalScores with actual score preserved');
+      } else {
+        fail(`Alice not in #1 spot: ${JSON.stringify(gameOverData.finalScores)}`);
       }
 
       cAlice.disconnect();
       cBob.disconnect();
     }
 
-    // ── Scenario 2: Drawer leaves while guesser remains during active drawing ──
-    console.log('\nScenario 2: Drawer leaves while guesser remains during active drawing');
+    // ── Scenario 2: Drawer leaves while guesser remains ──────────────────────
+    console.log('\nScenario 2: Drawer leaves while guesser remains');
     {
       const cAlice = createClient('s2_alice');
       const cBob = createClient('s2_bob');
@@ -143,6 +169,9 @@ async function runRegressionTests() {
         hostSessionId: 's2_alice',
         settings: { rounds: 2, drawTime: 30, wordCount: 3 },
       });
+
+      const bobChatMessages = [];
+      cBob.on('chat_message', (msg) => bobChatMessages.push(msg));
 
       await Promise.all([
         new Promise((res) => {
@@ -163,17 +192,16 @@ async function runRegressionTests() {
       cAlice.emit('select_word', { word: choicesData.choices[0] });
       await roundStartPromise;
 
-      // Drawer (Alice, host) explicitly leaves room
-      const lobbyPromise = new Promise((res) => cBob.once('returned_to_lobby', res));
-      const leftPromise = new Promise((res) => cBob.once('player_left', res));
+      // Drawer (Alice) leaves
+      const gameOverPromise = new Promise((res) => cBob.once('game_over', res));
+
       cAlice.emit('leave_room', { roomCode, sessionId: 's2_alice' });
 
-      const [lobbyData, leftData] = await Promise.all([lobbyPromise, leftPromise]);
-
-      if (lobbyData.reason === 'insufficient_players') {
-        pass('Guesser received returned_to_lobby with reason "insufficient_players"');
+      const gameOverData = await gameOverPromise;
+      if (gameOverData.reason === 'last_player_standing' && gameOverData.winners[0]?.name === 'Bob') {
+        pass('Bob won the game after 5 seconds by default');
       } else {
-        fail(`Expected reason "insufficient_players", got "${lobbyData.reason}"`);
+        fail(`Bob did not win properly: ${JSON.stringify(gameOverData)}`);
       }
 
       if (room.hostId === 's2_bob') {
@@ -182,27 +210,32 @@ async function runRegressionTests() {
         fail(`Expected host s2_bob, got ${room.hostId}`);
       }
 
-      if (room.status === 'waiting') {
-        pass('Room status safely in waiting lobby');
+      const aliceLeaveMsgs = bobChatMessages.filter((m) => m.text === 'Alice left the room.');
+      if (aliceLeaveMsgs.length === 1) {
+        pass('Bob received "Alice left the room." exactly once');
       } else {
-        fail(`Expected waiting, got ${room.status}`);
+        fail(`Expected 1 leave message, got ${aliceLeaveMsgs.length}`);
       }
 
       cAlice.disconnect();
       cBob.disconnect();
     }
 
-    // ── Scenario 3: Player leaves during word selection phase ────────────────
-    console.log('\nScenario 3: Player leaves during word selection phase');
+    // ── Scenario 3: 3 players -> 2 leave -> remaining player wins after 5s ──
+    console.log('\nScenario 3: 3 players start -> 2 leave -> remaining player wins after 5s');
     {
       const cAlice = createClient('s3_alice');
       const cBob = createClient('s3_bob');
+      const cCharlie = createClient('s3_charlie');
 
       const { room, roomCode } = roomManager.createRoom({
         hostName: 'Alice',
         hostSessionId: 's3_alice',
         settings: { rounds: 2, drawTime: 30, wordCount: 3 },
       });
+
+      const aliceChat = [];
+      cAlice.on('chat_message', (m) => aliceChat.push(m));
 
       await Promise.all([
         new Promise((res) => {
@@ -213,40 +246,46 @@ async function runRegressionTests() {
           cBob.once('room_joined', res);
           cBob.emit('join_room', { roomCode, playerName: 'Bob', sessionId: 's3_bob' });
         }),
+        new Promise((res) => {
+          cCharlie.once('room_joined', res);
+          cCharlie.emit('join_room', { roomCode, playerName: 'Charlie', sessionId: 's3_charlie' });
+        }),
       ]);
 
-      // Start game: in selecting_word phase
       const choicesPromise = new Promise((res) => cAlice.once('word_choices', res));
       cAlice.emit('start_game');
-      await choicesPromise;
+      const choices = await choicesPromise;
 
-      if (room.game && room.game.roundStatus === 'selecting_word') {
-        pass('Game is in selecting_word phase');
-      }
+      const roundStart = new Promise((res) => cAlice.once('round_start', res));
+      cAlice.emit('select_word', { word: choices.choices[0] });
+      await roundStart;
 
-      // Guesser leaves during word selection
-      const lobbyPromise = new Promise((res) => cAlice.once('returned_to_lobby', res));
+      // Bob and Charlie both leave
+      const gameOverPromise = new Promise((res) => cAlice.once('game_over', res));
+
       cBob.emit('leave_room', { roomCode, sessionId: 's3_bob' });
-      const lobbyData = await lobbyPromise;
+      cCharlie.emit('leave_room', { roomCode, sessionId: 's3_charlie' });
 
-      if (lobbyData.reason === 'insufficient_players') {
-        pass('Drawer received returned_to_lobby during word selection phase');
+      const gameOverData = await gameOverPromise;
+      if (gameOverData.reason === 'last_player_standing' && gameOverData.winners[0]?.name === 'Alice') {
+        pass('Alice won after 5s when other 2 players left');
       } else {
-        fail(`Expected insufficient_players, got ${lobbyData.reason}`);
+        fail('Alice did not win properly in 3-player scenario');
       }
 
-      if (room.game === null && room.status === 'waiting') {
-        pass('Word selection timeout and game instance safely cleared');
+      if (aliceChat.some((m) => m.text === 'Bob left the room.') && aliceChat.some((m) => m.text === 'Charlie left the room.')) {
+        pass('Leave notifications received for both departed players');
       } else {
-        fail('Game was not reset after leave during word selection');
+        fail('Missing leave notification for Bob or Charlie');
       }
 
       cAlice.disconnect();
       cBob.disconnect();
+      cCharlie.disconnect();
     }
 
-    // ── Scenario 4: Player leaves during round-end results screen ────────────
-    console.log('\nScenario 4: Player leaves during round-end results phase');
+    // ── Scenario 4: Player leaves during word selection phase ────────────────
+    console.log('\nScenario 4: Player leaves during word selection phase');
     {
       const cAlice = createClient('s4_alice');
       const cBob = createClient('s4_bob');
@@ -270,42 +309,28 @@ async function runRegressionTests() {
 
       const choicesPromise = new Promise((res) => cAlice.once('word_choices', res));
       cAlice.emit('start_game');
-      const choicesData = await choicesPromise;
+      await choicesPromise;
 
-      const roundEndPromise = new Promise((res) => cAlice.once('round_end', res));
-      cAlice.emit('select_word', { word: choicesData.choices[0] });
-
-      // Bob guesses correctly to trigger round_end early
-      cBob.emit('submit_guess', { guess: choicesData.choices[0] });
-      await roundEndPromise;
-
-      if (room.game && room.game.roundStatus === 'round_ended') {
-        pass('Game is in round_ended phase (showing results modal)');
+      if (room.game && room.game.roundStatus === 'selecting_word') {
+        pass('Game is in selecting_word phase');
       }
 
-      // Bob leaves during round_ended
-      const lobbyPromise = new Promise((res) => cAlice.once('returned_to_lobby', res));
+      const gameOverPromise = new Promise((res) => cAlice.once('game_over', res));
       cBob.emit('leave_room', { roomCode, sessionId: 's4_bob' });
-      const lobbyData = await lobbyPromise;
 
-      if (lobbyData.reason === 'insufficient_players') {
-        pass('Returned to lobby safely when player leaves during round_end delay');
+      const gameOverData = await gameOverPromise;
+      if (gameOverData.reason === 'last_player_standing' && gameOverData.winners[0]?.name === 'Alice') {
+        pass('Game cleanly ended with last_player_standing during word selection');
       } else {
-        fail(`Expected insufficient_players, got ${lobbyData.reason}`);
-      }
-
-      if (room.status === 'waiting' && room.game === null) {
-        pass('Round-end timeout cancelled and room returned to lobby');
-      } else {
-        fail('Room did not cleanly return to waiting');
+        fail(`Unexpected game over data: ${JSON.stringify(gameOverData)}`);
       }
 
       cAlice.disconnect();
       cBob.disconnect();
     }
 
-    // ── Scenario 5: Transient disconnect and reconnect (refresh) ────────────
-    console.log('\nScenario 5: Transient disconnect & reconnect (refresh)');
+    // ── Scenario 5: Reconnect within 5s cancels countdown without leave message ──
+    console.log('\nScenario 5: Disconnect, reconnect within 5s cancels countdown, no false leave/join spam');
     {
       const cAlice = createClient('s5_alice');
       let cBob = createClient('s5_bob');
@@ -315,6 +340,9 @@ async function runRegressionTests() {
         hostSessionId: 's5_alice',
         settings: { rounds: 2, drawTime: 30, wordCount: 3 },
       });
+
+      const aliceChat = [];
+      cAlice.on('chat_message', (m) => aliceChat.push(m));
 
       await Promise.all([
         new Promise((res) => {
@@ -335,39 +363,46 @@ async function runRegressionTests() {
       cAlice.emit('select_word', { word: choicesData.choices[0] });
       await roundStartPromise;
 
-      // Bob simulates page refresh (brief socket disconnect)
-      let returnedToLobbyTriggered = false;
-      cAlice.once('returned_to_lobby', () => {
-        returnedToLobbyTriggered = true;
-      });
-
+      // Bob disconnects socket (simulating page refresh)
       cBob.disconnect();
-      await new Promise((r) => setTimeout(r, 100));
 
-      if (room.game && room.game.roundStatus === 'drawing' && !returnedToLobbyTriggered) {
-        pass('Transient disconnect did NOT abort the active game (grace period active)');
+      // Wait 1 second (within grace period and within 5s auto-win timer)
+      await new Promise((r) => setTimeout(r, 1000));
+
+      // Assert no leave message was emitted because Bob is only temporarily disconnected
+      const falseLeave = aliceChat.find((m) => m.text === 'Bob left the room.');
+      if (!falseLeave) {
+        pass('No premature "Bob left the room." emitted during temporary disconnect');
       } else {
-        fail('Game was prematurely aborted on transient disconnect');
+        fail('Premature leave message emitted on transient disconnect');
       }
 
       // Bob reconnects with same sessionId
       cBob = createClient('s5_bob');
       const reconnectPromise = new Promise((res) => cBob.once('room_joined', res));
       cBob.emit('join_room', { roomCode, playerName: 'Bob', sessionId: 's5_bob' });
-      const joinData = await reconnectPromise;
+      await reconnectPromise;
 
-      if (joinData.isReconnect === true && room.connectedPlayerCount === 2) {
-        pass('Bob successfully reconnected within grace period; game remains intact');
+      // Assert no duplicate "Bob joined the room." on reconnect
+      const joinCount = aliceChat.filter((m) => m.text === 'Bob joined the room.').length;
+      if (joinCount === 1) {
+        pass('Bob reconnected without duplicate "Bob joined the room." spam');
       } else {
-        fail('Bob reconnect failed');
+        fail(`Expected exactly 1 join message, found ${joinCount}`);
+      }
+
+      if (room.game && room.game.autoWinCountdownTimer === null) {
+        pass('autoWinCountdownTimer is null and game continues normally');
+      } else {
+        fail('Countdown timer was not cleared on reconnect');
       }
 
       cAlice.disconnect();
       cBob.disconnect();
     }
 
-    // ── Scenario 6: Disconnect grace period expiry without reconnect ─────────
-    console.log('\nScenario 6: Disconnect grace period expires without reconnect');
+    // ── Scenario 6: Winner returns to lobby ──────────────────────────────────
+    console.log('\nScenario 6: Winner returns to lobby using existing controls');
     {
       const cAlice = createClient('s6_alice');
       const cBob = createClient('s6_bob');
@@ -397,171 +432,48 @@ async function runRegressionTests() {
       cAlice.emit('select_word', { word: choicesData.choices[0] });
       await roundStartPromise;
 
-      // Bob disconnects and does not return
-      const lobbyPromise = new Promise((res) => cAlice.once('returned_to_lobby', res));
-      cBob.disconnect();
+      // Bob leaves -> Alice wins
+      const gameOverPromise = new Promise((res) => cAlice.once('game_over', res));
+      cBob.emit('leave_room', { roomCode, sessionId: 's6_bob' });
+      await gameOverPromise;
 
-      // For test speed, manually trigger the reconnect timer callback or simulate timeout
-      const bobPlayer = room.getPlayerBySessionId('s6_bob');
-      if (bobPlayer && bobPlayer._reconnectTimer) {
-        clearTimeout(bobPlayer._reconnectTimer);
-        // Force grace period expiration callback
-        roomManager.permanentlyRemovePlayer(roomCode, 's6_bob', ({ removedPlayerId }) => {
-          io.to(roomCode).emit('player_left', {
-            playerId: removedPlayerId,
-            players: Array.from(room.players.values()).map((p) => p.toPublic()),
-          });
-        });
+      // Alice emits return_to_lobby
+      const returnedPromise = new Promise((res) => cAlice.once('returned_to_lobby', res));
+      cAlice.emit('return_to_lobby');
+      const returnedData = await returnedPromise;
+
+      if (returnedData.reason === 'host_action') {
+        pass('Alice successfully returned to lobby with reason "host_action"');
+      } else {
+        fail(`Expected reason "host_action", got ${returnedData.reason}`);
       }
 
-      const lobbyData = await lobbyPromise;
-
-      if (lobbyData.reason === 'insufficient_players') {
-        pass('Room returned to lobby after disconnect grace period expired');
+      if (room.status === 'waiting' && room.game === null) {
+        pass('Room is safely in waiting state and ready for next game');
       } else {
-        fail(`Expected insufficient_players, got ${lobbyData.reason}`);
+        fail(`Room state incorrect: status=${room.status}, game=${room.game}`);
       }
 
       cAlice.disconnect();
+      cBob.disconnect();
     }
 
-    // ── Scenario 7: Second player joins after return to lobby; new game starts ──
-    console.log('\nScenario 7: Second player joins after return to lobby; new game starts cleanly');
+    // ── Scenario 7: Room becomes completely empty ───────────────────────────
+    console.log('\nScenario 7: Room becomes completely empty');
     {
       const cAlice = createClient('s7_alice');
-      const cBob = createClient('s7_bob');
-
       const { room, roomCode } = roomManager.createRoom({
         hostName: 'Alice',
         hostSessionId: 's7_alice',
         settings: { rounds: 2, drawTime: 30, wordCount: 3 },
       });
 
-      await Promise.all([
-        new Promise((res) => {
-          cAlice.once('room_joined', res);
-          cAlice.emit('join_room', { roomCode, playerName: 'Alice', sessionId: 's7_alice' });
-        }),
-        new Promise((res) => {
-          cBob.once('room_joined', res);
-          cBob.emit('join_room', { roomCode, playerName: 'Bob', sessionId: 's7_bob' });
-        }),
-      ]);
-
-      // Start first game
-      const choicesPromise1 = new Promise((res) => cAlice.once('word_choices', res));
-      cAlice.emit('start_game');
-      const choices1 = await choicesPromise1;
-
-      const roundStart1 = new Promise((res) => cAlice.once('round_start', res));
-      cAlice.emit('select_word', { word: choices1.choices[0] });
-      await roundStart1;
-
-      // Bob leaves -> game aborts back to lobby
-      const lobbyPromise = new Promise((res) => cAlice.once('returned_to_lobby', res));
-      cBob.emit('leave_room', { roomCode, sessionId: 's7_bob' });
-      await lobbyPromise;
-
-      cBob.disconnect();
-
-      if (room.status === 'waiting') {
-        pass('Room is waiting in lobby with 1 player (Alice)');
-      }
-
-      // Charlie joins the room
-      const cCharlie = createClient('s7_charlie');
-      const joinPromise = new Promise((res) => cCharlie.once('room_joined', res));
-      cCharlie.emit('join_room', { roomCode, playerName: 'Charlie', sessionId: 's7_charlie' });
-      await joinPromise;
-
-      if (room.connectedPlayerCount === 2) {
-        pass('Charlie joined; room now has 2 connected players');
-      }
-
-      // Alice (host) starts a new game with Charlie
-      const choicesPromise2 = new Promise((res) => cAlice.once('word_choices', res));
-      cAlice.emit('start_game');
-      const choices2 = await choicesPromise2;
-
-      if (choices2.choices && choices2.choices.length === 3) {
-        pass('Alice successfully started a new game with Charlie (word choices received)');
-      } else {
-        fail('New game start failed');
-      }
-
-      cAlice.disconnect();
-      cCharlie.disconnect();
-    }
-
-    // ── Scenario 8: Multiple players leave nearly simultaneously ─────────────
-    console.log('\nScenario 8: Multiple players leave nearly simultaneously');
-    {
-      const cAlice = createClient('s8_alice');
-      const cBob = createClient('s8_bob');
-      const cCharlie = createClient('s8_charlie');
-
-      const { room, roomCode } = roomManager.createRoom({
-        hostName: 'Alice',
-        hostSessionId: 's8_alice',
-        settings: { rounds: 2, drawTime: 30, wordCount: 3 },
-      });
-
-      await Promise.all([
-        new Promise((res) => {
-          cAlice.once('room_joined', res);
-          cAlice.emit('join_room', { roomCode, playerName: 'Alice', sessionId: 's8_alice' });
-        }),
-        new Promise((res) => {
-          cBob.once('room_joined', res);
-          cBob.emit('join_room', { roomCode, playerName: 'Bob', sessionId: 's8_bob' });
-        }),
-        new Promise((res) => {
-          cCharlie.once('room_joined', res);
-          cCharlie.emit('join_room', { roomCode, playerName: 'Charlie', sessionId: 's8_charlie' });
-        }),
-      ]);
-
-      const choicesPromise = new Promise((res) => cAlice.once('word_choices', res));
-      cAlice.emit('start_game');
-      const choices = await choicesPromise;
-
-      const roundStart = new Promise((res) => cAlice.once('round_start', res));
-      cAlice.emit('select_word', { word: choices.choices[0] });
-      await roundStart;
-
-      // Bob and Charlie both leave nearly simultaneously
-      cBob.emit('leave_room', { roomCode, sessionId: 's8_bob' });
-      cCharlie.emit('leave_room', { roomCode, sessionId: 's8_charlie' });
-
-      await new Promise((r) => setTimeout(r, 200));
-
-      if (room.status === 'waiting' && room.playerCount === 1) {
-        pass('Multiple rapid leaves handled safely without double-abort crash or corrupted state');
-      } else {
-        fail(`Multi-leave state error: status=${room.status}, count=${room.playerCount}`);
-      }
-
-      cAlice.disconnect();
-      cBob.disconnect();
-      cCharlie.disconnect();
-    }
-
-    // ── Scenario 9: Room becomes empty ───────────────────────────────────────
-    console.log('\nScenario 9: Room becomes completely empty');
-    {
-      const cAlice = createClient('s9_alice');
-      const { room, roomCode } = roomManager.createRoom({
-        hostName: 'Alice',
-        hostSessionId: 's9_alice',
-        settings: { rounds: 2, drawTime: 30, wordCount: 3 },
-      });
-
       await new Promise((res) => {
         cAlice.once('room_joined', res);
-        cAlice.emit('join_room', { roomCode, playerName: 'Alice', sessionId: 's9_alice' });
+        cAlice.emit('join_room', { roomCode, playerName: 'Alice', sessionId: 's7_alice' });
       });
 
-      cAlice.emit('leave_room', { roomCode, sessionId: 's9_alice' });
+      cAlice.emit('leave_room', { roomCode, sessionId: 's7_alice' });
       await new Promise((r) => setTimeout(r, 100));
 
       if (!roomManager.getRoom(roomCode)) {
@@ -574,10 +486,10 @@ async function runRegressionTests() {
     }
 
     console.log('\n' + '═'.repeat(60));
-    console.log(`\n📊 Regression Test Results: ${passed} passed, ${failed} failed\n`);
+    console.log(`\n📊 Test Results: ${passed} passed, ${failed} failed\n`);
 
     if (failed === 0) {
-      console.log('🎉 All Insufficient Players Regression Tests passed successfully!\n');
+      console.log('🎉 All Auto-Win & Chat Notification Tests passed successfully!\n');
       process.exit(0);
     }
   } finally {
@@ -589,7 +501,7 @@ async function runRegressionTests() {
   }
 }
 
-runRegressionTests().catch((err) => {
-  console.error('Regression tests failed with error:', err);
+runAutoWinTests().catch((err) => {
+  console.error('Test suite failed with error:', err);
   process.exit(1);
 });

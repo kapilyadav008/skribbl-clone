@@ -179,6 +179,7 @@ function registerGameHandlers(io, socket) {
 
       io.to(room.roomCode).emit('returned_to_lobby', {
         room: room.toPublic(),
+        reason: 'host_action',
       });
     } catch (err) {
       console.warn(`[Socket] return_to_lobby error: ${err.message}`);

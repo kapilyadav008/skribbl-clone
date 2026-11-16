@@ -104,6 +104,12 @@ class GameManager {
 
     // Per-turn points earned tracking for round-end breakdown
     this.turnPoints = new Map();
+
+    // Auto-win countdown management for last remaining player
+    this.autoWinCountdownTimer = null;
+    this.autoWinInterval = null;
+    this.autoWinSecondsLeft = null;
+    this.autoWinWinnerId = null;
   }
 
   // ── 1. Validation & Eligibility ──────────────────────────────────────────
@@ -192,10 +198,17 @@ class GameManager {
     this.correctGuessCount = 0;
     this.correctGuessers.clear();
 
+    // If auto-win countdown is active, do not start turn
+    if (this.autoWinCountdownTimer !== null) return;
+
     // Verify minimum connected players before beginning turn
     const activeConnected = Array.from(this.room.players.values()).filter((p) => p.isConnected);
     if (activeConnected.length < CONSTANTS.ROOM.MIN_PLAYERS) {
-      this.abortGame('insufficient_players', 'Not enough players. Waiting for another player to join.');
+      if (activeConnected.length === 1) {
+        this.checkAutoWinCondition();
+      } else {
+        this.abortGame('insufficient_players', 'Not enough players. Waiting for another player to join.');
+      }
       return;
     }
 
@@ -211,8 +224,12 @@ class GameManager {
           .map((p) => p.sessionId);
 
         if (this.drawerOrder.length < CONSTANTS.ROOM.MIN_PLAYERS) {
-          // If players dropped below minimum, abort game to lobby
-          this.abortGame('insufficient_players', 'Not enough players. Waiting for another player to join.');
+          const connected = Array.from(this.room.players.values()).filter((p) => p.isConnected);
+          if (connected.length === 1) {
+            this.checkAutoWinCondition();
+          } else {
+            this.abortGame('insufficient_players', 'Not enough players. Waiting for another player to join.');
+          }
           return;
         }
       } else {
@@ -612,7 +629,7 @@ class GameManager {
    * @param {'time_up' | 'all_guessed' | 'drawer_disconnected'} reason
    */
   endRound(reason = 'time_up') {
-    if (this.isRoundEnding) return;
+    if (this.isRoundEnding || this.autoWinCountdownTimer !== null) return;
     this.isRoundEnding = true;
 
     this.roundStatus = 'round_ended';
@@ -675,20 +692,41 @@ class GameManager {
   /**
    * Ends the entire game, resets room status, and determines the winner(s).
    * @param {string} [reason='completed']
+   * @param {string} [defaultWinnerId=null]
    */
-  endGame(reason = 'completed') {
+  endGame(reason = 'completed', defaultWinnerId = null) {
+    if (this.roundStatus === 'game_over') return;
     this.roundStatus = 'game_over';
     this.room.status = 'ended';
     this.clearTimers();
 
     const players = Array.from(this.room.players.values());
-    const sortedScores = [...players]
-      .map((p) => ({ id: p.sessionId, name: p.name, score: p.score }))
-      .sort((a, b) => b.score - a.score);
+    let sortedScores;
+    let winners;
 
-    const maxScore = sortedScores.length > 0 ? sortedScores[0].score : 0;
-    // Support ties: all players who achieved maxScore
-    const winners = sortedScores.filter((p) => p.score === maxScore && maxScore > 0);
+    if (reason === 'last_player_standing' && defaultWinnerId) {
+      const defaultWinner = this.room.getPlayerBySessionId(defaultWinnerId);
+      if (defaultWinner) {
+        winners = [{ id: defaultWinner.sessionId, name: defaultWinner.name, score: defaultWinner.score }];
+        const others = players
+          .filter((p) => p.sessionId !== defaultWinnerId)
+          .map((p) => ({ id: p.sessionId, name: p.name, score: p.score }))
+          .sort((a, b) => b.score - a.score);
+        sortedScores = [
+          { id: defaultWinner.sessionId, name: defaultWinner.name, score: defaultWinner.score },
+          ...others,
+        ];
+      }
+    }
+
+    if (!sortedScores) {
+      sortedScores = [...players]
+        .map((p) => ({ id: p.sessionId, name: p.name, score: p.score }))
+        .sort((a, b) => b.score - a.score);
+
+      const maxScore = sortedScores.length > 0 ? sortedScores[0].score : 0;
+      winners = sortedScores.filter((p) => p.score === maxScore && maxScore > 0);
+    }
 
     this.io.to(this.room.roomCode).emit('game_over', {
       winners,
@@ -697,6 +735,127 @@ class GameManager {
     });
 
     console.log(`[GameManager] Game over in room ${this.room.roomCode}. Reason: ${reason}`);
+  }
+
+  // ── Auto-Win (Last Remaining Player) ────────────────────────────────────
+
+  /**
+   * Evaluates active connected player count and initiates or cancels auto-win countdown.
+   */
+  checkAutoWinCondition() {
+    if (this.roundStatus === 'game_over' || this.roundStatus === 'idle') return;
+
+    const connected = Array.from(this.room.players.values()).filter((p) => p.isConnected);
+
+    // If no players remain connected, cancel any countdown
+    if (connected.length === 0) {
+      this.cancelAutoWinCountdown();
+      return;
+    }
+
+    // Exactly 1 connected player remaining -> start 5-second auto-win countdown
+    if (connected.length === 1) {
+      this.startAutoWinCountdown(connected[0].sessionId);
+      return;
+    }
+
+    // 2 or more players connected -> if countdown was active, cancel and resume game
+    if (connected.length >= 2) {
+      this.cancelAutoWinCountdown(true);
+    }
+  }
+
+  /**
+   * Starts server-authoritative 5-second countdown to declare the last remaining player the winner.
+   * @param {string} lastPlayerSessionId
+   */
+  startAutoWinCountdown(lastPlayerSessionId) {
+    if (this.roundStatus === 'game_over' || this.roundStatus === 'idle') return;
+    if (this.autoWinCountdownTimer !== null) return; // Prevent duplicate countdowns
+
+    this.autoWinWinnerId = lastPlayerSessionId;
+    this.autoWinSecondsLeft = 5;
+
+    console.log(
+      `[GameManager] Starting 5s auto-win countdown in room ${this.room.roomCode} for player ${lastPlayerSessionId}`
+    );
+
+    const initialMsg = 'All other players have left. You win in 5 seconds...';
+    this.io.to(this.room.roomCode).emit('auto_win_countdown', {
+      secondsLeft: 5,
+      message: initialMsg,
+    });
+
+    this.autoWinInterval = setInterval(() => {
+      if (this.autoWinSecondsLeft === null) return;
+      this.autoWinSecondsLeft--;
+
+      if (this.autoWinSecondsLeft > 0) {
+        const tickMsg = `All other players have left. You win in ${this.autoWinSecondsLeft} seconds...`;
+        this.io.to(this.room.roomCode).emit('auto_win_countdown', {
+          secondsLeft: this.autoWinSecondsLeft,
+          message: tickMsg,
+        });
+      }
+    }, 1000);
+
+    this.autoWinCountdownTimer = setTimeout(() => {
+      this.finalizeAutoWin();
+    }, 5000);
+  }
+
+  /**
+   * Cancels the auto-win countdown if another player reconnects.
+   * @param {boolean} [notify=false]
+   */
+  cancelAutoWinCountdown(notify = false) {
+    if (this.autoWinCountdownTimer !== null || this.autoWinInterval !== null) {
+      console.log(`[GameManager] Cancelling auto-win countdown in room ${this.room.roomCode}`);
+      this.clearAutoWinTimers();
+
+      if (notify) {
+        const resumeMsg = 'Another player reconnected. Game continues!';
+        this.io.to(this.room.roomCode).emit('auto_win_cancelled', {
+          message: resumeMsg,
+        });
+      }
+    }
+  }
+
+  /**
+   * Finalizes the auto-win when countdown expires with only one player remaining.
+   */
+  finalizeAutoWin() {
+    this.clearAutoWinTimers();
+
+    if (this.roundStatus === 'game_over' || this.roundStatus === 'idle') return;
+
+    const connected = Array.from(this.room.players.values()).filter((p) => p.isConnected);
+    if (connected.length !== 1) return;
+
+    const winner = connected[0];
+    console.log(
+      `[GameManager] Auto-win countdown expired in room ${this.room.roomCode}. Declaring ${winner.name} winner by default.`
+    );
+
+    this.clearTimers();
+    this.endGame('last_player_standing', winner.sessionId);
+  }
+
+  /**
+   * Clears auto-win timers and intervals.
+   */
+  clearAutoWinTimers() {
+    if (this.autoWinCountdownTimer) {
+      clearTimeout(this.autoWinCountdownTimer);
+      this.autoWinCountdownTimer = null;
+    }
+    if (this.autoWinInterval) {
+      clearInterval(this.autoWinInterval);
+      this.autoWinInterval = null;
+    }
+    this.autoWinSecondsLeft = null;
+    this.autoWinWinnerId = null;
   }
 
   /**
@@ -776,6 +935,13 @@ class GameManager {
 
     // Safely finalize any unfinished stroke from this player
     this.drawingManager.handleDisconnect(sessionId);
+
+    // If active connected count is 1, trigger auto-win countdown immediately
+    const connected = Array.from(this.room.players.values()).filter((p) => p.isConnected);
+    if (connected.length === 1) {
+      this.checkAutoWinCondition();
+      return;
+    }
 
     // If the active drawer disconnects during word selection or drawing:
     if (sessionId === this.currentDrawerId) {
@@ -882,6 +1048,7 @@ class GameManager {
    * Clears all running timeouts and intervals.
    */
   clearTimers() {
+    this.clearAutoWinTimers();
     if (this.timerInterval) {
       clearInterval(this.timerInterval);
       this.timerInterval = null;
